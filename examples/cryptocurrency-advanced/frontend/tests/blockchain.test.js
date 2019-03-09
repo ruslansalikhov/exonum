@@ -10,18 +10,20 @@ const bigIntRegex = /[0-9]+/i;
 const hexRegex = /[0-9A-Fa-f]+/i;
 const TRANSACTION_URL = '/api/explorer/v1/transactions'
 const TRANSACTION_EXPLORER_URL = '/api/explorer/v1/transactions?hash='
-const PROOF_URL = '/api/services/cryptocurrency/v1/wallets/info?pub_key='
+const PROOF_URL = '/api/services/cryptocurrency/v1/wallets/info?name='
+const name = "John Doe"
 const keyPair = {
-  publicKey: '78cf8b5e5c020696319eb32a1408e6c65e7d97733d34528fbdce08438a0243e8',
-  secretKey: 'b5b3ccf6ca4475b7ff3d910d5ab31e4723098490a3e341dd9d2896b42ebc9f8978cf8b5e5c020696319eb32a1408e6c65e7d97733d34528fbdce08438a0243e8'
+  publicKey: '33ddfc87b274213ab42845d91570af26fb0cf3d28c147d08e44e96501b78cff5',
+  secretKey: '888398232761ee1cf5bdff3bf306d9951d7b3f535f2d78edff4fb7d4e8a78e2833ddfc87b274213ab42845d91570af26fb0cf3d28c147d08e44e96501b78cff5'
 }
+
 
 Vue.use(Blockchain)
 
 // Mock `createWallet` transaction
-const createWalletTxHash = '55209b3c6bd8593b9c90eacd3a57cfc448ebc0d47316235a4ca3a1751548a384'
+const createWalletTxHash = 'f1a4670f1895b803499fff9a6bf707353a373ef08b74e1631bef7f780b0fbd8d'
 mock.onPost(TRANSACTION_URL, {
-  'tx_body': '78cf8b5e5c020696319eb32a1408e6c65e7d97733d34528fbdce08438a0243e80000800002000a084a6f686e20446f65a71558ef2f2d592acfffbac71ea13327a78be83d6977240d3ca8cf4a92ba3d87cd30b9df1ca9b83147be274a85369ce5a2ce3e3a490be6acbaca48c764b40907'
+  'tx_body': '""33ddfc87b274213ab42845d91570af26fb0cf3d28c147d08e44e96501b78cff50000800002000a084a6f686e20446f6512220a2033ddfc87b274213ab42845d91570af26fb0cf3d28c147d08e44e96501b78cff518015fbd5b0acb9e9fe8637a6181134c6ead196774eb0289bb3a6b3ca16fd1bbf1206e19ed807e84aecfdea2cff815ab66dd39619a6b87e3dfd9f4991105848a2c0c""'
 }).replyOnce(200)
 
 mock.onGet(`${TRANSACTION_EXPLORER_URL}${createWalletTxHash}`).replyOnce(200, { 'type': 'in-pool' })
@@ -47,7 +49,7 @@ mock.onGet(`${TRANSACTION_EXPLORER_URL}${transferTxHash}`).replyOnce(200, { 'typ
 // Mock proof
 mock.onGet('/api/services/configuration/v1/configs/actual').reply(200, actual)
 
-mock.onGet(`${PROOF_URL}${keyPair.publicKey}`).replyOnce(200, proof)
+mock.onGet(`${PROOF_URL}${name}`).replyOnce(200, proof)
 
 describe('Interaction with blockchain', () => {
   it('should generate new signing key pair', () => {
@@ -66,38 +68,38 @@ describe('Interaction with blockchain', () => {
   })
 
   it('should create new wallet', async () => {
-    const name = 'John Doe'
-
-    await expect(Vue.prototype.$blockchain.createWallet(keyPair, name)).resolves
+    await expect(Vue.prototype.$blockchain.createWallet(keyPair, name, [keyPair.publicKey], 1)).resolves
   })
 
   it('should add funds', async () => {
     const amountToAdd = '50'
     const seed = '9935800087578782468'
 
-    await expect(Vue.prototype.$blockchain.addFunds(keyPair, amountToAdd, seed)).resolves
+    await expect(Vue.prototype.$blockchain.addFunds(keyPair, name, amountToAdd, seed)).resolves
   })
 
   it('should transfer funds', async () => {
-    const receiver = '278663010ebe1136011618ad5be1b9d6f51edc5b6c6b51b5450ffc72f54a57df'
+    const receiver = 'Bob'
     const amountToTransfer = '25'
     const seed = '7743941227375415562'
 
-    await expect(Vue.prototype.$blockchain.transfer(keyPair, receiver, amountToTransfer, seed)).resolves
+    await expect(Vue.prototype.$blockchain.transfer(keyPair, name, receiver, amountToTransfer, seed)).resolves
   })
 
   it('should get wallet proof and verify it', async () => {
-    const data = await Vue.prototype.$blockchain.getWallet(keyPair.publicKey)
+    const data = await Vue.prototype.$blockchain.getWallet(name);
 
     expect(data.wallet).toEqual({
-      "pub_key": {
-        "data": [120, 207, 139, 94, 92, 2, 6, 150, 49, 158, 179, 42, 20, 8, 230, 198, 94, 125, 151, 115, 61, 52, 82, 143, 189, 206, 8, 67, 138, 2, 67, 232]
-      },
       "name": "John Doe",
+      "pub_keys": [
+        {
+          "data": [51,221,252,135,178,116,33,58,180,40,69,217,21,112,175,38,251,12,243,210,140,20,125,8,228,78,150,80,27,120,207,245]
+        }],
+      "quorum": 1,
       "balance": 100,
       "history_len": 1,
       "history_hash": {
-        "data": [85, 32, 155, 60, 107, 216, 89, 59, 156, 144, 234, 205, 58, 87, 207, 196, 72, 235, 192, 212, 115, 22, 35, 90, 76, 163, 161, 117, 21, 72, 163, 132]
+        "data": [241,164,103,15,24,149,184,3,73,159,255,154,107,247,7,53,58,55,62,240,139,116,225,99,27,239,127,120,11,15,189,141]
       }
     })
   })

@@ -1,12 +1,12 @@
 {
-  "hash": "ee98db34db7e8bd08033be08c68148d9c0cee5768fcb61f1f72f7f9ed1c1e50e",
+  "hash": "99b0e2fcd15ad88c65151552cc77cf46bc9998ba3327279030f095d79ba86d3b",
   "config": {
     "previous_cfg_hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "actual_from": 0,
     "validator_keys": [
       {
-        "consensus_key": "d48c5ad2c3774a5394b35bbcbed3266e5abd31e01043c6d39c15f2fa9eea303a",
-        "service_key": "bdc934c5c2d3c7ce225368b736c0fbfa8f139f6305807c41ae5799f8d64700df"
+        "consensus_key": "22ec02b63fc2f5d46e7aac49a07f46539bcfa6525c70412cdfc7ca1e0cd035bf",
+        "service_key": "373f69741d38244d42e3cb2eb119c597de511866516080ecbb9a9bdb6e2e07c1"
       }
     ],
     "consensus": {

@@ -15,11 +15,12 @@
 //! Cryptocurrency database schema.
 
 use exonum::{
+    crypto,
     crypto::{Hash, PublicKey},
     storage::{Fork, ProofListIndex, ProofMapIndex, Snapshot},
 };
 
-use crate::{wallet::Wallet, INITIAL_BALANCE};
+use crate::{wallet::Wallet, transferproposal::TransferProposal, INITIAL_BALANCE};
 
 /// Database schema for the cryptocurrency.
 #[derive(Debug)]
@@ -43,18 +44,28 @@ where
     }
 
     /// Returns `ProofMapIndex` with wallets.
-    pub fn wallets(&self) -> ProofMapIndex<&T, PublicKey, Wallet> {
+    pub fn wallets(&self) -> ProofMapIndex<&T, Hash, Wallet> {
         ProofMapIndex::new("cryptocurrency.wallets", &self.view)
     }
 
-    /// Returns history of the wallet with the given public key.
-    pub fn wallet_history(&self, public_key: &PublicKey) -> ProofListIndex<&T, Hash> {
-        ProofListIndex::new_in_family("cryptocurrency.wallet_history", public_key, &self.view)
+    /// Returns history of the wallet with the given user name hash.
+    pub fn wallet_history(&self, hash: &Hash) -> ProofListIndex<&T, Hash> {
+        ProofListIndex::new_in_family("cryptocurrency.wallet_history", hash, &self.view)
     }
 
-    /// Returns wallet for the given public key.
-    pub fn wallet(&self, pub_key: &PublicKey) -> Option<Wallet> {
-        self.wallets().get(pub_key)
+    /// Returns wallet for the username hash.
+    pub fn wallet(&self, hash: &Hash) -> Option<Wallet> {
+        self.wallets().get(hash)
+    }
+
+    /// Returns `ProofMapIndex` with wallets.
+    pub fn transfer_proposals(&self) -> ProofMapIndex<&T, Hash, TransferProposal> {
+        ProofMapIndex::new("cryptocurrency.transfer_proposals", &self.view)
+    }
+
+    /// Returns proposals for the given tranfer hash.
+    pub fn transfer_proposal(&self, hash: &Hash) -> Option<TransferProposal> {
+        self.transfer_proposals().get(hash)
     }
 
     /// Returns the state hash of cryptocurrency service.
@@ -66,16 +77,21 @@ where
 /// Implementation of mutable methods.
 impl<'a> Schema<&'a mut Fork> {
     /// Returns mutable `ProofMapIndex` with wallets.
-    pub fn wallets_mut(&mut self) -> ProofMapIndex<&mut Fork, PublicKey, Wallet> {
+    pub fn wallets_mut(&mut self) -> ProofMapIndex<&mut Fork, Hash, Wallet> {
         ProofMapIndex::new("cryptocurrency.wallets", &mut self.view)
+    }
+
+    /// Returns mutable `ProofMapIndex` with transfer proposals.
+    pub fn transfer_proposals_mut(&mut self) -> ProofMapIndex<&mut Fork, Hash, TransferProposal> {
+        ProofMapIndex::new("cryptocurrency.transfer_proposals", &mut self.view)
     }
 
     /// Returns history for the wallet by the given public key.
     pub fn wallet_history_mut(
         &mut self,
-        public_key: &PublicKey,
+        hash: &Hash,
     ) -> ProofListIndex<&mut Fork, Hash> {
-        ProofListIndex::new_in_family("cryptocurrency.wallet_history", public_key, &mut self.view)
+        ProofListIndex::new_in_family("cryptocurrency.wallet_history", hash, &mut self.view)
     }
 
     /// Increase balance of the wallet and append new record to its history.
@@ -83,13 +99,13 @@ impl<'a> Schema<&'a mut Fork> {
     /// Panics if there is no wallet with given public key.
     pub fn increase_wallet_balance(&mut self, wallet: Wallet, amount: u64, transaction: &Hash) {
         let wallet = {
-            let mut history = self.wallet_history_mut(&wallet.pub_key);
+            let mut history = self.wallet_history_mut(&crypto::hash(wallet.name.as_bytes()));
             history.push(*transaction);
             let history_hash = history.merkle_root();
             let balance = wallet.balance;
             wallet.set_balance(balance + amount, &history_hash)
         };
-        self.wallets_mut().put(&wallet.pub_key, wallet.clone());
+        self.wallets_mut().put(&crypto::hash(wallet.name.as_bytes()), wallet.clone());
     }
 
     /// Decrease balance of the wallet and append new record to its history.
@@ -97,23 +113,37 @@ impl<'a> Schema<&'a mut Fork> {
     /// Panics if there is no wallet with given public key.
     pub fn decrease_wallet_balance(&mut self, wallet: Wallet, amount: u64, transaction: &Hash) {
         let wallet = {
-            let mut history = self.wallet_history_mut(&wallet.pub_key);
+            let mut history = self.wallet_history_mut(&crypto::hash(wallet.name.as_bytes()));
             history.push(*transaction);
             let history_hash = history.merkle_root();
             let balance = wallet.balance;
             wallet.set_balance(balance - amount, &history_hash)
         };
-        self.wallets_mut().put(&wallet.pub_key, wallet.clone());
+        self.wallets_mut().put(&crypto::hash(wallet.name.as_bytes()), wallet.clone());
     }
 
     /// Create new wallet and append first record to its history.
-    pub fn create_wallet(&mut self, key: &PublicKey, name: &str, transaction: &Hash) {
+    pub fn create_wallet(&mut self, name: &String, keys: &Vec<PublicKey>, quorum: u32, transaction: &Hash) {
         let wallet = {
-            let mut history = self.wallet_history_mut(key);
+            let mut history = self.wallet_history_mut(&crypto::hash(name.as_bytes()));
             history.push(*transaction);
             let history_hash = history.merkle_root();
-            Wallet::new(key, name, INITIAL_BALANCE, history.len(), &history_hash)
+            Wallet::new(name, keys.to_vec(), quorum, INITIAL_BALANCE, history.len(), &history_hash)
         };
-        self.wallets_mut().put(key, wallet);
+        self.wallets_mut().put(&crypto::hash(name.as_bytes()), wallet);
+    }
+
+    /// Create new transfer proposal.
+    pub fn create_transfer_proposal(&mut self, from: &String, to: &String, amount: u64, seed: u64) {
+        let transfer_proposal = TransferProposal::new(from, to, amount, seed, 1);
+        self.transfer_proposals_mut().put(&transfer_proposal.hash(), transfer_proposal);
+    }
+
+    /// Increase proposal signs
+    pub fn increase_proposal_signs(&mut self, transfer_proposal: TransferProposal) {
+        let transfer_proposal = {
+            transfer_proposal.increase_signs()
+        };
+        self.transfer_proposals_mut().put(&transfer_proposal.hash(), transfer_proposal.clone());
     }
 }

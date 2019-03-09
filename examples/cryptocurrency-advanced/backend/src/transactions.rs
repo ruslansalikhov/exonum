@@ -20,14 +20,17 @@
 
 use exonum::{
     blockchain::{ExecutionError, ExecutionResult, Transaction, TransactionContext},
+    crypto,
     crypto::{PublicKey, SecretKey},
     messages::{Message, RawTransaction, Signed},
 };
 
 use super::proto;
 use crate::{schema::Schema, CRYPTOCURRENCY_SERVICE_ID};
+use crate::transferproposal::TransferProposal;
 
 const ERROR_SENDER_SAME_AS_RECEIVER: u8 = 0;
+const ERROR_SENDER_WRONG_KEY: u8 = 1;
 
 /// Error codes emitted by wallet transactions during execution.
 #[derive(Debug, Fail)]
@@ -56,6 +59,18 @@ pub enum Error {
     /// Can be emitted by `Transfer`.
     #[fail(display = "Insufficient currency amount")]
     InsufficientCurrencyAmount = 3,
+
+    /// Not enough signs yet.
+    ///
+    /// Can be emitted by `Transfer`.
+    #[fail(display = "Not enough signs yet")]
+    NotEnoughSignsYet = 4,
+
+    /// Quorum number is not correct.
+    ///
+    /// Can be emitted by `CreateWallet`.
+    #[fail(display = "Quorum is not correct")]
+    QuorumIsNotCorrect = 5,
 }
 
 impl From<Error> for ExecutionError {
@@ -69,8 +84,10 @@ impl From<Error> for ExecutionError {
 #[derive(Clone, Debug, ProtobufConvert)]
 #[exonum(pb = "proto::Transfer", serde_pb_convert)]
 pub struct Transfer {
-    /// `PublicKey` of receiver's wallet.
-    pub to: PublicKey,
+    /// name of receiver's wallet.
+    pub from: String,
+    /// name of receiver's wallet.
+    pub to: String,
     /// Amount of currency to transfer.
     pub amount: u64,
     /// Auxiliary number to guarantee [non-idempotence][idempotence] of transactions.
@@ -83,6 +100,8 @@ pub struct Transfer {
 #[derive(Serialize, Deserialize, Clone, Debug, ProtobufConvert)]
 #[exonum(pb = "proto::Issue")]
 pub struct Issue {
+    /// Recipient.
+    pub to: String,
     /// Issued amount of currency.
     pub amount: u64,
     /// Auxiliary number to guarantee [non-idempotence][idempotence] of transactions.
@@ -97,6 +116,10 @@ pub struct Issue {
 pub struct CreateWallet {
     /// Name of the new wallet.
     pub name: String,
+    /// Wallet keys.
+    pub pub_keys: Vec<PublicKey>,
+    /// Quorum size.
+    pub quorum: u32,
 }
 
 /// Transaction group.
@@ -112,10 +135,12 @@ pub enum WalletTransactions {
 
 impl CreateWallet {
     #[doc(hidden)]
-    pub fn sign(name: &str, pk: &PublicKey, sk: &SecretKey) -> Signed<RawTransaction> {
+    pub fn sign(name: &str, pub_keys: Vec<PublicKey>, quorum: u32, pk: &PublicKey, sk: &SecretKey) -> Signed<RawTransaction> {
         Message::sign_transaction(
             Self {
                 name: name.to_owned(),
+                pub_keys,
+                quorum
             },
             CRYPTOCURRENCY_SERVICE_ID,
             *pk,
@@ -124,13 +149,13 @@ impl CreateWallet {
     }
 }
 
-impl Transfer {
+impl Issue {
     #[doc(hidden)]
     pub fn sign(
-        pk: &PublicKey,
-        &to: &PublicKey,
+        to: String,
         amount: u64,
         seed: u64,
+        pk: &PublicKey,
         sk: &SecretKey,
     ) -> Signed<RawTransaction> {
         Message::sign_transaction(
@@ -142,45 +167,90 @@ impl Transfer {
     }
 }
 
+impl Transfer {
+    #[doc(hidden)]
+    pub fn sign(
+        from: String,
+        to: String,
+        amount: u64,
+        seed: u64,
+        pk: &PublicKey,
+        sk: &SecretKey,
+    ) -> Signed<RawTransaction> {
+        Message::sign_transaction(
+            Self { from, to, amount, seed },
+            CRYPTOCURRENCY_SERVICE_ID,
+            *pk,
+            sk,
+        )
+    }
+}
+
 impl Transaction for Transfer {
     fn execute(&self, mut context: TransactionContext) -> ExecutionResult {
-        let from = &context.author();
+        let pub_key = &context.author();
+        let from = &self.from;
         let hash = context.tx_hash();
 
         let mut schema = Schema::new(context.fork());
 
         let to = &self.to;
         let amount = self.amount;
+        let seed = self.seed;
 
         if from == to {
             return Err(ExecutionError::new(ERROR_SENDER_SAME_AS_RECEIVER));
         }
 
-        let sender = schema.wallet(from).ok_or(Error::SenderNotFound)?;
+        let sender = schema.wallet(&crypto::hash(from.as_bytes())).ok_or(Error::SenderNotFound)?;
 
-        let receiver = schema.wallet(to).ok_or(Error::ReceiverNotFound)?;
-
-        if sender.balance < amount {
-            Err(Error::InsufficientCurrencyAmount)?
+        let mut ok = false;
+        for key in &sender.pub_keys {
+            if pub_key.to_hex() == key.to_hex() {
+                ok = true;
+            }
         }
 
-        schema.decrease_wallet_balance(sender, amount, &hash);
-        schema.increase_wallet_balance(receiver, amount, &hash);
+        if !ok {
+            return Err(ExecutionError::new(ERROR_SENDER_WRONG_KEY));
+        }
 
-        Ok(())
+        let receiver = schema.wallet(&crypto::hash(to.as_bytes())).ok_or(Error::ReceiverNotFound)?;
+
+        let transfer_proposal = TransferProposal::new(from, to, amount, seed, 1);
+        if schema.transfer_proposal(&transfer_proposal.hash()).is_none() {
+            schema.create_transfer_proposal(from, to, amount, seed);
+        } else {
+            schema.increase_proposal_signs(transfer_proposal);
+        }
+        let transfer_proposal = schema.transfer_proposal(
+            &TransferProposal::new(from, to, amount, seed, 1).hash()).unwrap();
+
+        if transfer_proposal.signs != sender.quorum {
+            //Err(Error::NotEnoughSignsYet)?
+            Ok(())
+        } else {
+            if sender.balance < amount {
+                Err(Error::InsufficientCurrencyAmount)?
+            }
+
+            schema.decrease_wallet_balance(sender, amount, &hash);
+            schema.increase_wallet_balance(receiver, amount, &hash);
+
+            Ok(())
+        }
     }
 }
 
 impl Transaction for Issue {
     fn execute(&self, mut context: TransactionContext) -> ExecutionResult {
-        let pub_key = &context.author();
+        let _pub_key = &context.author();
         let hash = context.tx_hash();
 
         let mut schema = Schema::new(context.fork());
 
-        if let Some(wallet) = schema.wallet(pub_key) {
-            let amount = self.amount;
-            schema.increase_wallet_balance(wallet, amount, &hash);
+        if let Some(wallet) = schema.wallet(&crypto::hash(self.to.as_bytes())) {
+            schema.increase_wallet_balance(wallet, self.amount, &hash);
             Ok(())
         } else {
             Err(Error::ReceiverNotFound)?
@@ -195,9 +265,18 @@ impl Transaction for CreateWallet {
 
         let mut schema = Schema::new(context.fork());
 
-        if schema.wallet(pub_key).is_none() {
-            let name = &self.name;
-            schema.create_wallet(pub_key, name, &hash);
+        if pub_key.to_hex() != self.pub_keys[0].to_hex() {
+            return Err(ExecutionError::new(ERROR_SENDER_WRONG_KEY));
+        }
+
+        let name = &self.name;
+        if schema.wallet(&crypto::hash(name.as_bytes())).is_none() {
+
+            if self.quorum == 0 || self.quorum > self.pub_keys.len() as u32 {
+                Err(Error::QuorumIsNotCorrect)?
+            }
+
+            schema.create_wallet(name, &self.pub_keys, self.quorum, &hash);
             Ok(())
         } else {
             Err(Error::WalletAlreadyExists)?

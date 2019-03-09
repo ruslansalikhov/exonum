@@ -11,12 +11,22 @@
                   <label class="control-label">Name:</label>
                   <input v-model="name" type="text" class="form-control" placeholder="Enter name" maxlength="260" required>
                 </div>
+                <div class="form-group">
+                  <label class="control-label">Keys:</label>
+                  <input v-model="keys_num" type="number" class="form-control" placeholder="Enter keys number" min="1" required>
+                </div>
+                <div class="form-group">
+                  <label class="control-label">Quorum:</label>
+                  <input v-model="quorum" type="number" class="form-control" placeholder="Enter quorum" min="1" required>
+                </div>
                 <button type="submit" class="btn btn-lg btn-block btn-primary">Register</button>
               </form>
             </tab>
             <tab title="Log in">
               <form @submit.prevent="login">
                 <div class="form-group">
+                  <label class="control-label">Name:</label>
+                  <input v-model="name" type="text" class="form-control" placeholder="Enter name" required>
                   <label class="control-label">Secret key:</label>
                   <input v-model="secretKey" type="text" class="form-control" placeholder="Enter secret key" required>
                 </div>
@@ -29,10 +39,15 @@
     </div>
 
     <modal :visible="isModalVisible" title="Wallet has been created" action-btn="Log in" @close="closeModal" @submit="proceed">
-      <div class="alert alert-warning" role="alert">Save the secret key in a safe place. You will need it to log in to the demo next time.</div>
+      <div class="alert alert-warning" role="alert">Save the secret keys in a safe place. You will need it to log in to the demo next time.</div>
       <div class="form-group">
-        <label>Secret key:</label>
-        <div><code>{{ keyPair.secretKey }}</code></div>
+        <label>Secret keys:</label>
+        <ul class="list-group list-group-flush">
+          <!-- eslint-disable-next-line vue/require-v-for-key -->
+          <li v-for="k in keyPairs" class="list-group-item">
+            <div><code>{{ k.secretKey }}</code></div>
+          </li>
+        </ul>
       </div>
     </modal>
 
@@ -71,8 +86,11 @@
         this.isSpinnerVisible = true
 
         this.$store.commit('login', {
-          publicKey: this.secretKey.substr(64),
-          secretKey: this.secretKey
+            name: this.name,
+            keyPair: {
+                publicKey: this.secretKey.substr(64),
+                secretKey: this.secretKey
+            }
         })
 
         this.$nextTick(function() {
@@ -85,16 +103,32 @@
           return this.$notify('error', 'The name is a required field')
         }
 
+        if (this.keys_num < 1) {
+          return this.$notify('error', 'Keys number should be >= 1')
+        }
+
+        if (this.keys_num < this.quorum || this.quorum < 1) {
+          return this.$notify('error', 'Quorum should be <= keys number and > 0')
+        }
+
         this.isSpinnerVisible = true
-        this.keyPair = this.$blockchain.generateKeyPair()
+        this.keyPairs = []
+        let pubKeys = []
+        for (let i = 0; i < this.keys_num; i++) {
+          let pair = this.$blockchain.generateKeyPair();
+          this.keyPairs.push(pair);
+          pubKeys.push(pair.publicKey);
+        }
+        this.keyPair = this.keyPairs[0]
 
         try {
-          await this.$blockchain.createWallet(this.keyPair, this.name)
-          this.name = ''
+          await this.$blockchain.createWallet(this.keyPair, this.name, pubKeys, this.quorum)
+          // this.name = ''
           this.isSpinnerVisible = false
           this.isModalVisible = true
         } catch (error) {
           this.isSpinnerVisible = false
+          console.log(error.stack);
           this.$notify('error', error.toString())
         }
       },
@@ -106,7 +140,10 @@
       proceed() {
         this.isModalVisible = false
 
-        this.$store.commit('login', this.keyPair)
+        this.$store.commit('login', {
+          name: this.name,
+          keyPair: this.keyPair
+        })
 
         this.$nextTick(function() {
           this.$router.push({ name: 'user' })

@@ -61,26 +61,34 @@ module.exports = {
         return Exonum.randomUint64()
       },
 
-      createWallet(keyPair, name) {
+      createWallet(keyPair, name, pubKeys, quorum) {
         // Describe transaction
-        const transaction = new CreateTransaction(keyPair.publicKey)
+        const transaction = new CreateTransaction(keyPair.publicKey);
+
+        let pub_keys = []
+        pubKeys.forEach(key => {
+          pub_keys.push({ data: Exonum.hexadecimalToUint8Array(key) });
+        });
 
         // Transaction data
         const data = {
-          name: name
+          name: name,
+          pub_keys: pub_keys,
+          quorum: quorum
         }
 
         // Send transaction into blockchain
         return transaction.send(TRANSACTION_URL, data, keyPair.secretKey)
       },
 
-      addFunds(keyPair, amountToAdd, seed) {
+      addFunds(keyPair, receiver, amountToAdd, seed) {
         // Describe transaction
         const transaction = new IssueTransaction(keyPair.publicKey)
 
         // Transaction data
         const data = {
-          amount: amountToAdd.toString(),
+          to: receiver,
+          amount: amountToAdd,
           seed: seed
         }
 
@@ -88,13 +96,14 @@ module.exports = {
         return transaction.send(TRANSACTION_URL, data, keyPair.secretKey)
       },
 
-      transfer(keyPair, receiver, amountToTransfer, seed) {
+      transfer(keyPair, name, receiver, amountToTransfer, seed) {
         // Describe transaction
         const transaction = new TransferTransaction(keyPair.publicKey)
 
         // Transaction data
         const data = {
-          to: { data: Exonum.hexadecimalToUint8Array(receiver) },
+          from: name,
+          to: receiver,
           amount: amountToTransfer,
           seed: seed
         }
@@ -103,14 +112,14 @@ module.exports = {
         return transaction.send(TRANSACTION_URL, data, keyPair.secretKey)
       },
 
-      getWallet(publicKey) {
+      getWallet(name) {
         return axios.get('/api/services/configuration/v1/configs/actual').then(response => {
           // actual list of public keys of validators
           const validators = response.data.config.validator_keys.map(validator => {
             return validator.consensus_key
           })
 
-          return axios.get(`/api/services/cryptocurrency/v1/wallets/info?pub_key=${publicKey}`)
+          return axios.get(`/api/services/cryptocurrency/v1/wallets/info?name=${name}`)
             .then(response => response.data)
             .then(data => {
               return Exonum.verifyBlock(data.block_proof, validators).then(() => {
@@ -118,11 +127,13 @@ module.exports = {
                 const tableRootHash = Exonum.verifyTable(data.wallet_proof.to_table, data.block_proof.block.state_hash, SERVICE_ID, TABLE_INDEX)
 
                 // find wallet in the tree of all wallets
-                const walletProof = new Exonum.MapProof(data.wallet_proof.to_wallet, Exonum.PublicKey, Wallet)
+                const walletProof = new Exonum.MapProof(data.wallet_proof.to_wallet, Exonum.Hash, Wallet)
                 if (walletProof.merkleRoot !== tableRootHash) {
                   throw new Error('Wallet proof is corrupted')
                 }
-                const wallet = walletProof.entries.get(publicKey)
+
+                const nameHash = Exonum.hash(Exonum.stringToUint8Array(name))
+                const wallet = walletProof.entries.get(nameHash)
                 if (typeof wallet === 'undefined') {
                   throw new Error('Wallet not found')
                 }
@@ -147,11 +158,19 @@ module.exports = {
                 let index = 0
 
                 for (let transaction of data.wallet_history.transactions) {
+                  console.log(transaction);
                   const hash = transactionsMetaData[index++]
                   const buffer = Exonum.hexadecimalToUint8Array(transaction.message)
                   const bufferWithoutSignature = buffer.subarray(0, buffer.length - 64)
                   const author = Exonum.uint8ArrayToHexadecimal(buffer.subarray(0, 32))
                   const signature = Exonum.uint8ArrayToHexadecimal(buffer.subarray(buffer.length - 64, buffer.length));
+
+                  // HACK
+                  if (transaction.debug.pub_keys) {
+                    for (let i = 0; i < transaction.debug.pub_keys.length; i++) {
+                      transaction.debug.pub_keys[i] = { data: Exonum.hexadecimalToUint8Array(transaction.debug.pub_keys[i]) };
+                    }
+                  }
 
                   const Transaction = getTransaction(transaction.debug, author)
 

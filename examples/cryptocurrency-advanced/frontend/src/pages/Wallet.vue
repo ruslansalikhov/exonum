@@ -45,7 +45,7 @@
                   <div class="col-sm-12">
                     <router-link :to="{ name: 'transaction', params: { hash: transaction.hash } }">
                       <span v-if="transaction.name">Wallet created</span>
-                      <span v-else-if="transaction.to && transaction.to === keyPair.publicKey">
+                      <span v-else-if="transaction.to && transaction.to === name">
                         <strong v-numeral="transaction.amount"/> funds received
                       </span>
                       <span v-else-if="transaction.to">
@@ -84,7 +84,7 @@
               <form @submit.prevent="transfer">
                 <div class="form-group">
                   <label>Receiver:</label>
-                  <input v-model="receiver" type="text" class="form-control" placeholder="Enter public key" required>
+                  <input v-model="receiver" type="text" class="form-control" placeholder="Enter name" required>
                 </div>
                 <div class="form-group">
                   <label>Amount:</label>
@@ -93,6 +93,12 @@
                       <div class="input-group-text">$</div>
                     </div>
                     <input v-model="amountToTransfer" type="number" class="form-control" placeholder="Enter amount" min="0" required>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Seed:</label>
+                  <div class="input-group">
+                    <input v-model="seed" type="number" class="form-control" placeholder="Enter seed" min="0" required>
                   </div>
                 </div>
                 <button type="submit" class="btn btn-primary">Transfer funds</button>
@@ -121,11 +127,11 @@
     },
     data() {
       return {
-        name: '',
         balance: 0,
         amountToAdd: 10,
         receiver: '',
         amountToTransfer: '',
+        seed: '',
         isSpinnerVisible: false,
         transactions: [],
         variants: [
@@ -140,6 +146,7 @@
         return this.transactions.slice().reverse()
       }
     }, mapState({
+      name: state => state.name,
       keyPair: state => state.keyPair
     })),
     methods: {
@@ -153,8 +160,7 @@
         this.isSpinnerVisible = true
 
         try {
-          const data = await this.$blockchain.getWallet(this.keyPair.publicKey)
-          this.name = data.wallet.name
+          const data = await this.$blockchain.getWallet(this.name)
           this.balance = data.wallet.balance
           this.transactions = data.transactions
           this.isSpinnerVisible = false
@@ -170,8 +176,8 @@
         const seed = this.$blockchain.generateSeed()
 
         try {
-          await this.$blockchain.addFunds(this.keyPair, this.amountToAdd, seed)
-          const data = await this.$blockchain.getWallet(this.keyPair.publicKey)
+          await this.$blockchain.addFunds(this.keyPair, this.name, this.amountToAdd, seed)
+          const data = await this.$blockchain.getWallet(this.name)
           this.balance = data.wallet.balance
           this.transactions = data.transactions
           this.isSpinnerVisible = false
@@ -183,21 +189,21 @@
       },
 
       async transfer() {
-        if (!this.$validateHex(this.receiver)) {
-          return this.$notify('error', 'Invalid public key is passed')
-        }
+        // if (!this.$validateHex(this.receiver)) {
+        //   return this.$notify('error', 'Invalid public key is passed')
+        // }
 
-        if (this.receiver === this.keyPair.publicKey) {
+        if (this.receiver === this.name) {
           return this.$notify('error', 'Can not transfer funds to yourself')
         }
 
         this.isSpinnerVisible = true
 
-        const seed = this.$blockchain.generateSeed()
+        //const seed = this.$blockchain.generateSeed()
 
         try {
-          await this.$blockchain.transfer(this.keyPair, this.receiver, this.amountToTransfer, seed)
-          const data = await this.$blockchain.getWallet(this.keyPair.publicKey)
+          await this.$blockchain.transfer(this.keyPair, this.name, this.receiver, this.amountToTransfer, this.seed)
+          const data = await this.$blockchain.getWallet(this.name)
           this.balance = data.wallet.balance
           this.transactions = data.transactions
           this.isSpinnerVisible = false

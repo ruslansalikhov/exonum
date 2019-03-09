@@ -20,38 +20,61 @@ import "helpers.proto";
 
 /// Transfer `amount` of the currency from one wallet to another.
 message Transfer {
-  // `PublicKey` of receiver's wallet.
-  exonum.PublicKey to = 1;
+  // Name of sender's wallet.
+  string from = 1;
+  // Name of receiver's wallet.
+  string to = 2;
   // Amount of currency to transfer.
-  uint64 amount = 2;
+  uint64 amount = 3;
   // Auxiliary number to guarantee non-idempotence of transactions.
-  uint64 seed = 3;
+  uint64 seed = 4;
 }
 
 // Issue `amount` of the currency to the `wallet`.
 message Issue {
+// Name of receiver's wallet.
+  string to = 1;
   // Issued amount of currency.
-  uint64 amount = 1;
+  uint64 amount = 2;
   // Auxiliary number to guarantee non-idempotence of transactions.
-  uint64 seed = 2;
+  uint64 seed = 3;
 }
 
 // Create wallet with the given `name`.
 message CreateWallet {
   // Name of the new wallet.
   string name = 1;
+  // Public keys.
+  repeated exonum.PublicKey pub_keys = 2;
+  // Quorum size
+  uint32 quorum = 3;
 }
 
 // Wallet information stored in the database.
 message Wallet {
+// Name of the wallet.
+  string name = 1;
   // `PublicKey` of the wallet.
-  exonum.PublicKey pub_key = 1;
-  // Name of the wallet.
-  string name = 2;
+  repeated exonum.PublicKey pub_keys = 2;
+  // Quorum size
+  uint32 quorum = 3;
   // Current balance of the wallet.
-  uint64 balance = 3;
+  uint64 balance = 4;
   // Length of the transactions history.
-  uint64 history_len = 4;
+  uint64 history_len = 5;
   // `Hash` of the transactions history.
-  exonum.Hash history_hash = 5;
+  exonum.Hash history_hash = 6;
+}
+
+message TransferProposal {
+  // Name of sender's wallet.
+  string from = 1;
+  // Name of receiver's wallet.
+  string to = 2;
+  // Amount of currency to transfer.
+  uint64 amount = 3;
+  // Auxiliary number to guarantee non-idempotence of transactions.
+  uint64 seed = 4;
+  // signers (who already signed)
+  uint32 signs = 5;
 }

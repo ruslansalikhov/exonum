@@ -22,10 +22,12 @@ use super::proto;
 #[derive(Clone, Debug, ProtobufConvert)]
 #[exonum(pb = "proto::Wallet", serde_pb_convert)]
 pub struct Wallet {
-    /// `PublicKey` of the wallet.
-    pub pub_key: PublicKey,
     /// Name of the wallet.
     pub name: String,
+    /// `PublicKey` of the wallet.
+    pub pub_keys: Vec<PublicKey>,
+    /// Quorum number.
+    pub quorum: u32,
     /// Current balance of the wallet.
     pub balance: u64,
     /// Length of the transactions history.
@@ -37,15 +39,17 @@ pub struct Wallet {
 impl Wallet {
     /// Create new Wallet.
     pub fn new(
-        &pub_key: &PublicKey,
         name: &str,
+        pub_keys: Vec<PublicKey>,
+        quorum: u32,
         balance: u64,
         history_len: u64,
         &history_hash: &Hash,
     ) -> Self {
         Self {
-            pub_key,
             name: name.to_owned(),
+            pub_keys,
+            quorum,
             balance,
             history_len,
             history_hash,
@@ -54,8 +58,9 @@ impl Wallet {
     /// Returns a copy of this wallet with updated balance.
     pub fn set_balance(self, balance: u64, history_hash: &Hash) -> Self {
         Self::new(
-            &self.pub_key,
             &self.name,
+            self.pub_keys,
+            self.quorum,
             balance,
             self.history_len + 1,
             history_hash,

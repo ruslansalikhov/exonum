@@ -17,7 +17,8 @@
 use exonum::{
     api::{self, ServiceApiBuilder, ServiceApiState},
     blockchain::{self, BlockProof, TransactionMessage},
-    crypto::{Hash, PublicKey},
+    crypto::{Hash, hash},
+//    crypto::{Hash, PublicKey},
     explorer::BlockchainExplorer,
     helpers::Height,
     storage::{ListProof, MapProof},
@@ -26,10 +27,10 @@ use exonum::{
 use crate::{wallet::Wallet, Schema, CRYPTOCURRENCY_SERVICE_ID};
 
 /// Describes the query parameters for the `get_wallet` endpoint.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WalletQuery {
-    /// Public key of the queried wallet.
-    pub pub_key: PublicKey,
+    /// Hash of name of the queried wallet.
+    pub name: String,
 }
 
 /// Proof of existence for specific wallet.
@@ -38,7 +39,7 @@ pub struct WalletProof {
     /// Proof of the whole database table.
     pub to_table: MapProof<Hash, Hash>,
     /// Proof of the specific wallet in this table.
-    pub to_wallet: MapProof<PublicKey, Wallet>,
+    pub to_wallet: MapProof<Hash, Wallet>,
 }
 
 /// Wallet history.
@@ -71,6 +72,7 @@ impl PublicApi {
         let snapshot = state.snapshot();
         let general_schema = blockchain::Schema::new(&snapshot);
         let currency_schema = Schema::new(&snapshot);
+        let name_hash = hash(query.name.as_bytes());
 
         let max_height = general_schema.block_hashes_by_height().len() - 1;
 
@@ -81,20 +83,20 @@ impl PublicApi {
         let to_table: MapProof<Hash, Hash> =
             general_schema.get_proof_to_service_table(CRYPTOCURRENCY_SERVICE_ID, 0);
 
-        let to_wallet: MapProof<PublicKey, Wallet> =
-            currency_schema.wallets().get_proof(query.pub_key);
+        let to_wallet: MapProof<Hash, Wallet> =
+            currency_schema.wallets().get_proof(name_hash);
 
         let wallet_proof = WalletProof {
             to_table,
             to_wallet,
         };
 
-        let wallet = currency_schema.wallet(&query.pub_key);
+        let wallet = currency_schema.wallet(&name_hash);
 
         let explorer = BlockchainExplorer::new(state.blockchain());
 
         let wallet_history = wallet.map(|_| {
-            let history = currency_schema.wallet_history(&query.pub_key);
+            let history = currency_schema.wallet_history(&name_hash);
             let proof = history.get_range_proof(0, history.len());
 
             let transactions = history
